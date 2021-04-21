@@ -3,8 +3,11 @@ import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:just_audio/just_audio.dart';
+import 'package:multiplay/models/track_models.dart';
+import 'package:multiplay/tools/write_to_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:process_run/shell.dart';
 import 'package:file_selector/file_selector.dart';
@@ -62,11 +65,14 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
   String _text = 'filepath';
-  List<Track> _trackGroup = [];
+  List<TrackInstance> _trackGroup = [];
+  String _status = '';
 
   void _playTracks() {
     _trackGroup.forEach((element) {
-      element.play();
+      print(element.trackKey);
+      print(element.trackKey.currentState);
+      element.trackKey.currentState.play();
     });
   }
 
@@ -74,15 +80,105 @@ class _MyHomePageState extends State<MyHomePage> {
     final typeGroup = XTypeGroup(label: 'audio', extensions: ['.mp3', '.wav']);
     final List<XFile> files = await openFiles(acceptedTypeGroups: [typeGroup]);
     if (files.length <= 0) return;
+    GlobalKey<TrackState> _keyChild = GlobalKey();
     setState(() {
-      _trackGroup.add(Track(files: files));
+      _trackGroup.add(TrackInstance(
+          track: Track(
+            key: _keyChild,
+            files: files,
+          ),
+          trackKey: _keyChild));
     });
   }
 
   void _importTracks() async {
-    final typeGroup = XTypeGroup(label: 'multiplay', extensions: ['.multiplay']);
-    final List<XFile> files = await openFiles(acceptedTypeGroups: [typeGroup]);
+    final typeGroup =
+        XTypeGroup(label: 'multiplay', extensions: ['.multiplay']);
+    final XFile file = await openFile(acceptedTypeGroups: [typeGroup]);
+    if (file == null) return;
 
+    String project_name = file.name.replaceAll(RegExp(r".multiplay$"), '');
+
+    Directory tempDir = await getTemporaryDirectory();
+    Directory destinationDir =
+        await Directory('${tempDir.path}/Import-$project_name-${Uuid().v1()}')
+            .create();
+
+    try {
+      await ZipFile.extractToDirectory(
+          zipFile: File(file.path),
+          destinationDir: destinationDir,
+          onExtracting: (zipEntry, progress) {
+            // print('progress: ${progress.toStringAsFixed(1)}%');
+            // print('name: ${zipEntry.name}');
+            // print('isDirectory: ${zipEntry.isDirectory}');
+            // print(
+            //     'modificationDate: ${zipEntry.modificationDate.toLocal().toIso8601String()}');
+            // print('uncompressedSize: ${zipEntry.uncompressedSize}');
+            // print('compressedSize: ${zipEntry.compressedSize}');
+            // print('compressionMethod: ${zipEntry.compressionMethod}');
+            // print('crc: ${zipEntry.crc}');
+            return ExtractOperation.extract;
+          });
+    } catch (e) {
+      print(e);
+    }
+
+    File jsonFile = File('${destinationDir.path}/preferences.json');
+    if (!await jsonFile.exists()) return;
+
+    Map<String, dynamic> preferences =
+        await jsonDecode(await jsonFile.readAsString());
+    print(preferences);
+
+    List<TrackInstance> trackGroup = [];
+
+    for (String key in preferences.keys) {
+      if (key == "tracks") {
+        List<dynamic> tracks = preferences[key];
+        for (Map track in tracks) {
+          List<XFile> fileList = [];
+          Directory trackDir =
+              Directory('${destinationDir.path}/${track["name"]}');
+          if (await trackDir.exists()) {
+            List<FileSystemEntity> files = trackDir.listSync();
+            files.forEach((file) {
+              if (file.runtimeType.toString() == "_File") {
+                XFile audioFile = XFile(file.path);
+                print(audioFile.name);
+                fileList.add(audioFile);
+              }
+            });
+
+            if(fileList.isEmpty) continue;
+
+            GlobalKey<TrackState> trackKey = GlobalKey();
+            double trackLevel = track["level"] is double ? track["level"] : 1.0;
+            trackGroup.add(
+              TrackInstance(
+                  track: Track(
+                    key: trackKey,
+                    files: fileList,
+                    level: trackLevel,
+                    trackName: track["name"],
+                  ),
+                  trackKey: trackKey),
+            );
+          }
+        }
+      }
+    }
+
+    trackGroup.forEach((element) {
+      print(element.track.trackName);
+      print(element.track.files);
+      print(element.trackKey);
+    });
+    // print(trackGroup);
+
+    setState(() {
+      _trackGroup = trackGroup;
+    });
   }
 
   void _exportTracks() async {
@@ -92,17 +188,19 @@ class _MyHomePageState extends State<MyHomePage> {
     final Map<String, dynamic> preferences = {'tracks': []};
 
     Directory tempDir = await getTemporaryDirectory();
-    Directory sourceDir = await Directory('${tempDir.path}/Export-${Uuid().v1()}').create();
+    Directory sourceDir =
+        await Directory('${tempDir.path}/Export-${Uuid().v1()}').create();
 
     final List<File> files = [];
-    for (Track track in _trackGroup) {
-      List<XFile> xFiles = track.files;
-      preferences['tracks']
-          .add({"name": track.trackName, "level": track.player.volume});
+    for (TrackInstance track in _trackGroup) {
+      List<XFile> xFiles = track.track.files;
+      preferences['tracks'].add(
+          {"name": track.track.trackName, "level": track.track.player.volume});
 
       for (XFile file in xFiles) {
         File toCopy = File(file.path);
-        Directory subDir = Directory('${sourceDir.path}/${track.trackName}');
+        Directory subDir =
+            Directory('${sourceDir.path}/${track.track.trackName}');
         if (!await subDir.exists()) await subDir.create();
         File copied = await toCopy.copy('${subDir.path}/${file.name}');
         files.add(copied);
@@ -117,15 +215,60 @@ class _MyHomePageState extends State<MyHomePage> {
 
     final zipFile = File(path);
 
+    setState(() {
+      _status = "Zipping!";
+    });
     try {
       await ZipFile.createFromFiles(
           sourceDir: sourceDir, files: files, zipFile: zipFile);
     } catch (e) {
       print(e);
     }
+    setState(() {
+      _status = "";
+    });
 
     print('deleting!');
     await sourceDir.delete(recursive: true);
+  }
+
+  void _shellFunction() async {
+    // var ffmpeg = await Cachin('assets/ffmpeg');
+    var controller = ShellLinesController();
+    var shell = Shell(stdout: controller.sink, verbose: false);
+
+    // print(ffmpeg.);
+
+    var shellStream = controller.stream.listen((event) {
+      print(event);
+    });
+
+    Directory toolsDir = Directory('${(await getLibraryDirectory()).path}/Application Support/Multiplay/Tools');
+    if(!(await toolsDir.exists())) await toolsDir.create(recursive: true);
+    shell = shell.cd(toolsDir.path);
+
+    print(await getApplicationDocumentsDirectory());
+
+    File ffmpeg = File('${toolsDir.path}/ffmpeg');
+    if(!(await ffmpeg.exists())) {
+      print('not gonna make it here');
+
+      await shell.run('''
+        pwd
+        curl -O https://evermeet.cx/ffmpeg/ffmpeg-4.4.zip
+        unzip ffmpeg-4.4.zip
+        rm -f ffmpeg-4.4.zip
+        chmod +x ./ffmpeg
+        ls -l
+        ./ffmpeg -version
+      ''');
+    }
+    // print(await getDirectoryPath());
+    print(await getTemporaryDirectory());
+    print(await getLibraryDirectory());
+
+
+    shellStream.cancel();
   }
 
   @override
@@ -148,13 +291,14 @@ class _MyHomePageState extends State<MyHomePage> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 0.0, vertical: 25.0),
-                  child: ListView(
-                    children: <Widget>[
-                      ..._trackGroup,
-                      ...() {
-                        List<Widget> notice = [];
-                        if (_trackGroup.length == 0)
-                          notice.add(
+                  child: ListView.builder(
+                      itemCount: _trackGroup.length > 0
+                          ? _trackGroup.length
+                          : 1,
+                      itemBuilder: (context, index) {
+                        List<Widget> listWidgets = [];
+                        if (_trackGroup.length == 0) {
+                          listWidgets.add(
                             SizedBox(
                               height: 390.0,
                               child: Center(
@@ -165,11 +309,31 @@ class _MyHomePageState extends State<MyHomePage> {
                               ),
                             ),
                           );
-
-                        return notice;
-                      }()
-                    ],
-                  ),
+                        } else {
+                          _trackGroup
+                              .asMap()
+                              .forEach((int index, TrackInstance ti) {
+                            listWidgets.add(Row(
+                              children: [
+                                SizedBox(width: 875.0, child: ti.track),
+                                SizedBox(
+                                  width: 50.0,
+                                  height: 50.0,
+                                  child: IconButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _trackGroup.removeAt(index);
+                                      });
+                                    },
+                                    icon: Icon(Icons.cancel),
+                                  ),
+                                )
+                              ],
+                            ));
+                          });
+                        }
+                        return listWidgets[index];
+                      }),
                 ),
                 height: 440.0,
               ),
@@ -195,7 +359,19 @@ class _MyHomePageState extends State<MyHomePage> {
             tooltip: 'Export',
             child: Icon(Icons.save_alt_rounded),
           ),
+          SizedBox(
+            width: 15.0,
+          ),
+          Text(_status),
           Spacer(),
+          FloatingActionButton(
+            onPressed: _shellFunction,
+            tooltip: 'Shell Attempt',
+            child: Icon(Icons.code),
+          ),
+          SizedBox(
+            width: 15.0,
+          ),
           FloatingActionButton(
             onPressed: _playTracks,
             tooltip: 'Play',

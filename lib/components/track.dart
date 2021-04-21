@@ -8,71 +8,76 @@ import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
 class Track extends StatefulWidget {
-  Track({Key key, @required this.files}) : super(key: key);
+  Track({Key key, @required this.files, this.level, this.trackName})
+      : super(key: key);
 
   final List<XFile> files;
   final AudioPlayer player = AudioPlayer();
-  String trackName = '';
+  final double level;
+  final String trackName;
 
-  void addFiles() async {
+  void playStatus(String name, Duration totalTime, Duration playtime) async {
+    // print('play status: $totalTime');
+  }
+
+  @override
+  TrackState createState() => TrackState();
+}
+
+class TrackState extends State<Track> {
+  double _gain = 0.8;
+  String _title = '';
+  String _currentlyPlaying = '';
+  TextEditingController _controller = TextEditingController();
+
+  void _addFiles() async {
     final typeGroup = XTypeGroup(label: 'audio', extensions: ['.mp3', '.wav']);
     final List<XFile> newFiles =
         await openFiles(acceptedTypeGroups: [typeGroup]);
-    files.addAll(newFiles);
+    widget.files.addAll(newFiles);
   }
 
   void play() async {
-    XFile randomFile = (files.toList()..shuffle()).first;
-    await player.setFilePath(randomFile.path);
+    XFile randomFile = (widget.files.toList()..shuffle()).first;
+    await widget.player.setFilePath(randomFile.path);
+
+    setState(() {
+      _currentlyPlaying = randomFile.name;
+    });
+
+    print(_currentlyPlaying);
+
+    bool alreadyPlayed = false;
 
     StreamSubscription playState =
-        player.playerStateStream.listen((state) async {
+        widget.player.playerStateStream.listen((state) async {
       StreamSubscription playtime;
-      bool alreadyPlayed = false;
       if (state.playing) {
         alreadyPlayed = true;
-        playtime = player.positionStream.listen((Duration time) {
-          playStatus(randomFile.name, player.duration, time);
+        playtime = widget.player.positionStream.listen((Duration time) {
+          widget.playStatus(randomFile.name, widget.player.duration, time);
         });
-      } else if(alreadyPlayed) {
+      } else if (alreadyPlayed) {
         playtime.cancel();
+        setState(() {
+          _currentlyPlaying = '';
+        });
       }
     });
 
-    List<XFile> getFiles() {
-      return files;
-    }
-
-    await player.play();
+    await widget.player.play();
     playState.cancel();
+    print(_currentlyPlaying);
     // playStatus(randomFile.name);
   }
 
-  void playStatus(String name, Duration totalTime, Duration playtime) async {
-    // print('$name: $playtime/$totalTime');
-  }
-
-  @override
-  _TrackState createState() => _TrackState();
-}
-
-class _TrackState extends State<Track> {
-  double _gain = 0.8;
-  String _title = '';
-  TextEditingController _controller = TextEditingController();
-
   @override
   void initState() {
+    _title = widget.trackName != null ? widget.trackName : widget.files[0].name;
+    _gain = widget.level != null ? (widget.level / 1.25) : 1.0;
+    _controller.text = _title;
     super.initState();
-    widget.trackName = widget.files[0].name;
-    _controller.text = widget.files[0].name;
   }
-
-  // void setTitle(String title) {
-  //   setState(() {
-  //     this._title = title;
-  //   });
-  // }
 
   @override
   Widget build(BuildContext context) {
@@ -86,7 +91,7 @@ class _TrackState extends State<Track> {
                 child: TextField(
                   controller: _controller,
                   onChanged: (String newVal) {
-                    widget.trackName = newVal;
+                    _title = newVal;
                     print(newVal);
                   },
                 ),
@@ -125,11 +130,17 @@ class _TrackState extends State<Track> {
                 padding: EdgeInsets.zero,
                 tooltip: "Edit Track Contents",
               ),
-              Text(_title),
+              Text(
+                _currentlyPlaying,
+                style: TextStyle(
+                    color: Colors.black,
+                    fontStyle: FontStyle.italic,
+                    fontSize: 10.0),
+              ),
               Spacer(),
               TextButton(
                   onPressed: () {
-                    widget.addFiles();
+                    _addFiles();
                   },
                   child: Text('add files')),
             ],
@@ -143,7 +154,9 @@ class _TrackState extends State<Track> {
                 _gain = value;
               });
             }),
-        SizedBox(height: 30.0,)
+        SizedBox(
+          height: 30.0,
+        )
       ],
     );
   }
