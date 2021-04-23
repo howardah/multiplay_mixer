@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:just_audio/just_audio.dart';
+import 'package:multiplay/globals/common.dart';
 import 'package:multiplay/models/track_models.dart';
 import 'package:multiplay/tools/write_to_file.dart';
 import 'package:path_provider/path_provider.dart';
@@ -27,6 +28,7 @@ class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
+    initializeApp();
     return MaterialApp(
       title: 'Multiplay - Mixer',
       debugShowCheckedModeBanner: false,
@@ -46,6 +48,9 @@ class MyApp extends StatelessWidget {
           border: InputBorder.none,
           fillColor: Colors.white60,
           filled: true,
+        ),
+        iconTheme: IconThemeData(
+
         ),
       ),
       home: MyHomePage(title: 'Multiplay - Mixer'),
@@ -150,7 +155,7 @@ class _MyHomePageState extends State<MyHomePage> {
               }
             });
 
-            if(fileList.isEmpty) continue;
+            if (fileList.isEmpty) continue;
 
             GlobalKey<TrackState> trackKey = GlobalKey();
             double trackLevel = track["level"] is double ? track["level"] : 1.0;
@@ -237,38 +242,29 @@ class _MyHomePageState extends State<MyHomePage> {
     var controller = ShellLinesController();
     var shell = Shell(stdout: controller.sink, verbose: false);
 
-    // print(ffmpeg.);
-
     var shellStream = controller.stream.listen((event) {
       print(event);
     });
 
-    Directory toolsDir = Directory('${(await getLibraryDirectory()).path}/Application Support/Multiplay/Tools');
-    if(!(await toolsDir.exists())) await toolsDir.create(recursive: true);
     shell = shell.cd(toolsDir.path);
 
-    print(await getApplicationDocumentsDirectory());
+    ByteData exportBytes =
+        await rootBundle.load('assets/audio/export_mega.mka');
+    await writeToFile(exportBytes, '${cacheDir.path}/export_mega.mka');
+    File audioFile = File('${cacheDir.path}/export_mega.mka');
+    // await audioFile.create();
 
-    File ffmpeg = File('${toolsDir.path}/ffmpeg');
-    if(!(await ffmpeg.exists())) {
-      print('not gonna make it here');
-
-      await shell.run('''
-        pwd
-        curl -O https://evermeet.cx/ffmpeg/ffmpeg-4.4.zip
-        unzip ffmpeg-4.4.zip
-        rm -f ffmpeg-4.4.zip
-        chmod +x ./ffmpeg
-        ls -l
-        ./ffmpeg -version
-      ''');
-    }
-    // print(await getDirectoryPath());
-    print(await getTemporaryDirectory());
-    print(await getLibraryDirectory());
-
+    await shell.run(
+        './ffmpeg -i "${audioFile.path}" -filter_complex "[m:piano:1] [m:clar:2] amerge" -vn -ar 44100 -ac 2 -b:a 192k "${cacheDir.path}/output.mp3"');
 
     shellStream.cancel();
+  }
+
+  void _reOrder(oldIndex, newIndex) {
+    int trackLength = _trackGroup.length;
+    int index = newIndex >= trackLength ? (trackLength - 1) : newIndex;
+    TrackInstance moving = _trackGroup.removeAt(oldIndex);
+    _trackGroup.insert(index, moving);
   }
 
   @override
@@ -290,50 +286,52 @@ class _MyHomePageState extends State<MyHomePage> {
                     color: Color.fromRGBO(0, 0, 0, 0.08)),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 0.0, vertical: 25.0),
-                  child: ListView.builder(
-                      itemCount: _trackGroup.length > 0
-                          ? _trackGroup.length
-                          : 1,
+                      horizontal: 10.0, vertical: 25.0),
+                  child: () {
+                    if (_trackGroup.length == 0) {
+                      return SizedBox(
+                        height: 390.0,
+                        child: Center(
+                          child: Text(
+                            'Press the plus button to add a track!',
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                        ),
+                      );
+                    }
+                    return ReorderableListView.builder(
+                      onReorder: (oldIndex, newIndex) {
+                        print('$oldIndex -> $newIndex');
+                        setState(() {
+                          _reOrder(oldIndex, newIndex);
+                        });
+                      },
+
+                      itemCount: _trackGroup.length,
                       itemBuilder: (context, index) {
-                        List<Widget> listWidgets = [];
-                        if (_trackGroup.length == 0) {
-                          listWidgets.add(
+                        TrackInstance ti = _trackGroup[index];
+                        // return ti.track;
+                        return Row(
+                          key: ValueKey(ti),
+                          children: [
+                            SizedBox(width: (MediaQuery.of(context).size.width - 150), child: ti.track),
                             SizedBox(
-                              height: 390.0,
-                              child: Center(
-                                child: Text(
-                                  'Press the plus button to add a track!',
-                                  style: TextStyle(color: Colors.black54),
-                                ),
+                              width: 50.0,
+                              height: 50.0,
+                              child: IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _trackGroup.removeAt(index);
+                                  });
+                                },
+                                icon: Icon(Icons.cancel),
                               ),
                             ),
-                          );
-                        } else {
-                          _trackGroup
-                              .asMap()
-                              .forEach((int index, TrackInstance ti) {
-                            listWidgets.add(Row(
-                              children: [
-                                SizedBox(width: 875.0, child: ti.track),
-                                SizedBox(
-                                  width: 50.0,
-                                  height: 50.0,
-                                  child: IconButton(
-                                    onPressed: () {
-                                      setState(() {
-                                        _trackGroup.removeAt(index);
-                                      });
-                                    },
-                                    icon: Icon(Icons.cancel),
-                                  ),
-                                )
-                              ],
-                            ));
-                          });
-                        }
-                        return listWidgets[index];
-                      }),
+                          ],
+                        );
+                      },
+                    );
+                  }(),
                 ),
                 height: 440.0,
               ),
@@ -350,6 +348,14 @@ class _MyHomePageState extends State<MyHomePage> {
             onPressed: _importTracks,
             tooltip: 'Open File',
             child: Icon(Icons.folder_open_rounded),
+          ),
+          SizedBox(
+            width: 15.0,
+          ),
+          FloatingActionButton(
+            onPressed: _exportTracks,
+            tooltip: 'Save File',
+            child: Icon(Icons.save_rounded),
           ),
           SizedBox(
             width: 15.0,

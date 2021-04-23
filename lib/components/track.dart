@@ -84,7 +84,7 @@ class TrackState extends State<Track> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 25.0, vertical: 0.0),
+          padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 0.0),
           child: Row(
             children: [
               SizedBox(
@@ -146,14 +146,24 @@ class TrackState extends State<Track> {
             ],
           ),
         ),
-        Slider(
-            value: _gain,
-            onChanged: (double value) {
-              widget.player.setVolume(value * 1.25);
-              setState(() {
-                _gain = value;
-              });
-            }),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10.0, 20.0, 10.0, 0),
+          child: SliderTheme(
+            data: SliderThemeData(
+              thumbShape: RoundSliderThumbShape(enabledThumbRadius: 8.0),
+              overlayShape: SliderComponentShape.noOverlay,
+            ),
+            child: Slider(
+              value: _gain,
+              onChanged: (double value) {
+                widget.player.setVolume(value * 1.25);
+                setState(() {
+                  _gain = value;
+                });
+              },
+            ),
+          ),
+        ),
         SizedBox(
           height: 30.0,
         )

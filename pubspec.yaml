@@ -32,6 +32,7 @@ dependencies:
   path_provider: ^2.0.1
   flutter_archive: ^3.0.0
   uuid: ^3.0.4
+  desktop_window_utils: ^0.0.3
 
 
   # The following adds the Cupertino Icons font to your application.
