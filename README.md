@@ -4,6 +4,8 @@ Definitely a work in progress, this is currently something of a scratchpad for g
 
 Feel free to send PRs or write me with thoughts if you’re interested and/or have ideas about the project.
 
+## Build
+
 ```
 flutter pub get
 flutter build macos
