@@ -56,8 +56,6 @@ flutter:
 
   assets:
     - assets/audio/
-    - assets/ffmpeg
-    - assets/sox/
 
 analyzer:
   - enable-experiment:
