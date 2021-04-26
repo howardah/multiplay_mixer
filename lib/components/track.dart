@@ -1,23 +1,31 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:math';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
 class Track extends StatefulWidget {
-  Track({Key key, @required this.files, this.level, this.trackName})
+  Track({Key? key, required this.files, this.level = 1.0, this.trackName})
       : super(key: key);
 
   final List<XFile> files;
   final AudioPlayer player = AudioPlayer();
   final double level;
-  final String trackName;
+  final String? trackName;
 
   void playStatus(String name, Duration totalTime, Duration playtime) async {
     // print('play status: $totalTime');
+  }
+
+  Future<Duration> longestDuration() async {
+    Duration longest = Duration(seconds: 0);
+    for(XFile file in files) {
+      print(file.path);
+      await player.setFilePath(file.path);
+      Duration? duration = player.duration != null ? player.duration : Duration(seconds: 0);
+      if(duration != null && duration > longest) longest = duration;
+    }
+    return longest;
   }
 
   @override
@@ -29,53 +37,34 @@ class TrackState extends State<Track> {
   String _title = '';
   String _currentlyPlaying = '';
   TextEditingController _controller = TextEditingController();
+  Duration _longestDuration = Duration();
 
   void _addFiles() async {
-    final typeGroup = XTypeGroup(label: 'audio', extensions: ['.mp3', '.wav']);
+    final typeGroup = XTypeGroup(label: 'audio', extensions: ['.mp3', '.wav', '.m4a']);
     final List<XFile> newFiles =
         await openFiles(acceptedTypeGroups: [typeGroup]);
     widget.files.addAll(newFiles);
+    _updateLongest();
   }
 
-  void play() async {
-    XFile randomFile = (widget.files.toList()..shuffle()).first;
-    await widget.player.setFilePath(randomFile.path);
-
+  void _updateLongest() async {
+    Duration ld = await widget.longestDuration();
     setState(() {
-      _currentlyPlaying = randomFile.name;
+      _longestDuration = ld;
     });
-
-    print(_currentlyPlaying);
-
-    bool alreadyPlayed = false;
-
-    StreamSubscription playState =
-        widget.player.playerStateStream.listen((state) async {
-      StreamSubscription playtime;
-      if (state.playing) {
-        alreadyPlayed = true;
-        playtime = widget.player.positionStream.listen((Duration time) {
-          widget.playStatus(randomFile.name, widget.player.duration, time);
-        });
-      } else if (alreadyPlayed) {
-        playtime.cancel();
-        setState(() {
-          _currentlyPlaying = '';
-        });
-      }
-    });
-
-    await widget.player.play();
-    playState.cancel();
-    print(_currentlyPlaying);
-    // playStatus(randomFile.name);
   }
+
+  String get title => _title;
+  double get level => _gain;
+  Duration get duration => _longestDuration;
 
   @override
   void initState() {
-    _title = widget.trackName != null ? widget.trackName : widget.files[0].name;
-    _gain = widget.level != null ? (widget.level / 1.25) : 1.0;
+    String? initName = widget.trackName;
+    _title = initName != null ? initName : widget.files[0].name;
+    _gain = widget.level / 1.25;
     _controller.text = _title;
+    _updateLongest();
     super.initState();
   }
 
@@ -122,7 +111,8 @@ class TrackState extends State<Track> {
                   }(),
                 ],
                 onSelected: (value) {
-                  widget.files.removeAt(value);
+                  int index = int.parse(value.toString());
+                  widget.files.removeAt(index);
                 },
                 onCanceled: () {
                   print('Yeah, okay');

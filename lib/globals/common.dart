@@ -6,8 +6,16 @@ import 'package:process_run/shell.dart';
 
 String appTitle = 'Multiplay Mixer';
 bool isConnected = false;
-Directory toolsDir;
-Directory cacheDir;
+Directory toolsDir = Directory('Users/Shared/Multiplay/Tools');
+Directory cacheDir = Directory('Users/Shared/Multiplay/Cache');
+
+final controller = ShellLinesController();
+Shell shell = Shell(stdout: controller.sink, verbose: false);
+
+String cleanPath(String path) {
+  RegExp unEscapedSpaces = RegExp(r'(?<!\\) ');
+  return path.replaceAll(unEscapedSpaces, '\\ ');
+}
 
 Future<String> initializeApp() async {
   toolsDir = Directory(
@@ -19,7 +27,6 @@ Future<String> initializeApp() async {
   if (!(await toolsDir.exists())) await toolsDir.create(recursive: true);
   if (!(await cacheDir.exists())) await cacheDir.create(recursive: true);
 
-  Shell shell = Shell();
   shell = shell.cd(toolsDir.path);
 
   File ffmpeg = File('${toolsDir.path}/ffmpeg');
@@ -55,7 +62,8 @@ Future<bool> checkConnection() async {
 
 String curlUnZip(String appName, String url) {
   RegExp zipExp = RegExp(r"[^/]*.zip$");
-  String filename = zipExp.firstMatch(url).group(0);
+  RegExpMatch? nameMatch = zipExp.firstMatch(url);
+  String filename = nameMatch != null ? (nameMatch.group(0)).toString() : '';
 
   return '''
         curl -O $url

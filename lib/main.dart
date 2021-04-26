@@ -1,33 +1,37 @@
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:just_audio/just_audio.dart';
-import 'package:multiplay/globals/common.dart';
-import 'package:multiplay/models/track_models.dart';
-import 'package:multiplay/tools/write_to_file.dart';
+import 'package:multiplay_mixer/globals/common.dart';
+import 'package:multiplay_mixer/models/mixer_state.dart';
+import 'package:multiplay_mixer/models/track_models.dart';
+import 'package:multiplay_mixer/tools/write_to_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:process_run/shell.dart';
 import 'package:file_selector/file_selector.dart';
 
-import 'package:multiplay/components/track.dart';
+import 'package:multiplay_mixer/components/track.dart';
 import 'package:flutter_archive/flutter_archive.dart';
+import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
-// import 'package:file_selector';
 import 'dart:io';
 
 void main() {
-  runApp(MyApp());
+  runApp(ChangeNotifierProvider(
+    create: (context) => Mixer(),
+    child: MyApp(),
+  ));
 }
 
 class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
+    // print(context.watch<Mixer>().tracks.length);
+
     initializeApp();
     return MaterialApp(
       title: 'Multiplay - Mixer',
@@ -49,9 +53,7 @@ class MyApp extends StatelessWidget {
           fillColor: Colors.white60,
           filled: true,
         ),
-        iconTheme: IconThemeData(
-
-        ),
+        iconTheme: IconThemeData(),
       ),
       home: MyHomePage(title: 'Multiplay - Mixer'),
     );
@@ -59,7 +61,7 @@ class MyApp extends StatelessWidget {
 }
 
 class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
+  MyHomePage({Key? key, required this.title}) : super(key: key);
 
   final String title;
 
@@ -68,38 +70,28 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-  String _text = 'filepath';
   List<TrackInstance> _trackGroup = [];
   String _status = '';
-
-  void _playTracks() {
-    _trackGroup.forEach((element) {
-      print(element.trackKey);
-      print(element.trackKey.currentState);
-      element.trackKey.currentState.play();
-    });
-  }
+  bool _playing = false;
 
   void _addTrack() async {
-    final typeGroup = XTypeGroup(label: 'audio', extensions: ['.mp3', '.wav']);
+    final typeGroup = XTypeGroup(label: 'audio', extensions: ['.mp3', '.wav', '.m4a']);
     final List<XFile> files = await openFiles(acceptedTypeGroups: [typeGroup]);
     if (files.length <= 0) return;
     GlobalKey<TrackState> _keyChild = GlobalKey();
-    setState(() {
-      _trackGroup.add(TrackInstance(
-          track: Track(
-            key: _keyChild,
-            files: files,
-          ),
-          trackKey: _keyChild));
-    });
+
+    Provider.of<Mixer>(context, listen: false).addTrack(TrackInstance(
+        track: Track(
+          key: _keyChild,
+          files: files,
+        ),
+        trackKey: _keyChild));
   }
 
   void _importTracks() async {
     final typeGroup =
         XTypeGroup(label: 'multiplay', extensions: ['.multiplay']);
-    final XFile file = await openFile(acceptedTypeGroups: [typeGroup]);
+    final XFile? file = await openFile(acceptedTypeGroups: [typeGroup]);
     if (file == null) return;
 
     String project_name = file.name.replaceAll(RegExp(r".multiplay$"), '');
@@ -186,7 +178,7 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void _exportTracks() async {
+  void _saveProject() async {
     final path = await getSavePath(suggestedName: "my_trackz.multiplay");
     if (path == null) return;
 
@@ -234,6 +226,31 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     print('deleting!');
+    await sourceDir.delete(recursive: true);
+  }
+
+  void _exportTracks() async {
+    final path = await getSavePath(suggestedName: "project_name.mka");
+    if (path == null) return;
+    final File outFile = File(path);
+
+    Directory tempDir = await getTemporaryDirectory();
+    Directory sourceDir =
+        await Directory('${tempDir.path}/Export-${Uuid().v1()}').create();
+
+    setState(() {
+      _status = "Exporting!";
+    });
+
+    String shellCommand = await Provider.of<Mixer>(context, listen: false)
+        .exportString(outFile, sourceDir);
+    await shell.run(shellCommand);
+
+    print('deleting!');
+    setState(() {
+      _status = "";
+    });
+
     await sourceDir.delete(recursive: true);
   }
 
@@ -288,7 +305,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10.0, vertical: 25.0),
                   child: () {
-                    if (_trackGroup.length == 0) {
+                    if (context.watch<Mixer>().tracks.length == 0) {
                       return SizedBox(
                         height: 390.0,
                         child: Center(
@@ -300,28 +317,26 @@ class _MyHomePageState extends State<MyHomePage> {
                       );
                     }
                     return ReorderableListView.builder(
-                      onReorder: (oldIndex, newIndex) {
-                        print('$oldIndex -> $newIndex');
-                        setState(() {
-                          _reOrder(oldIndex, newIndex);
-                        });
-                      },
-
-                      itemCount: _trackGroup.length,
+                      onReorder:
+                          Provider.of<Mixer>(context, listen: false).moveTrack,
+                      itemCount: context.watch<Mixer>().tracks.length,
                       itemBuilder: (context, index) {
-                        TrackInstance ti = _trackGroup[index];
+                        TrackInstance ti = context.watch<Mixer>().tracks[index];
                         // return ti.track;
                         return Row(
                           key: ValueKey(ti),
                           children: [
-                            SizedBox(width: (MediaQuery.of(context).size.width - 150), child: ti.track),
+                            SizedBox(
+                                width:
+                                    (MediaQuery.of(context).size.width - 150),
+                                child: ti.track),
                             SizedBox(
                               width: 50.0,
                               height: 50.0,
                               child: IconButton(
                                 onPressed: () {
                                   setState(() {
-                                    _trackGroup.removeAt(index);
+                                    Provider.of<Mixer>(context, listen: false).removeTrack(index);
                                   });
                                 },
                                 icon: Icon(Icons.cancel),
@@ -353,7 +368,7 @@ class _MyHomePageState extends State<MyHomePage> {
             width: 15.0,
           ),
           FloatingActionButton(
-            onPressed: _exportTracks,
+            onPressed: _saveProject,
             tooltip: 'Save File',
             child: Icon(Icons.save_rounded),
           ),
@@ -379,7 +394,12 @@ class _MyHomePageState extends State<MyHomePage> {
             width: 15.0,
           ),
           FloatingActionButton(
-            onPressed: _playTracks,
+            onPressed: () {
+              Provider.of<Mixer>(context, listen: false).play();
+              setState(() {
+                _playing = true;
+              });
+            },
             tooltip: 'Play',
             child: Icon(Icons.play_arrow),
           ),
