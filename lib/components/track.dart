@@ -2,14 +2,12 @@ import 'dart:async';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
 
 class Track extends StatefulWidget {
   Track({Key? key, required this.files, this.level = 1.0, this.trackName})
       : super(key: key);
 
   final List<XFile> files;
-  final AudioPlayer player = AudioPlayer();
   final double level;
   final String? trackName;
 
@@ -19,12 +17,7 @@ class Track extends StatefulWidget {
 
   Future<Duration> longestDuration() async {
     Duration longest = Duration(seconds: 0);
-    for(XFile file in files) {
-      print(file.path);
-      await player.setFilePath(file.path);
-      Duration? duration = player.duration != null ? player.duration : Duration(seconds: 0);
-      if(duration != null && duration > longest) longest = duration;
-    }
+    //ToDo: use ffprobe to get the duration of each track
     return longest;
   }
 
@@ -146,7 +139,8 @@ class TrackState extends State<Track> {
             child: Slider(
               value: _gain,
               onChanged: (double value) {
-                widget.player.setVolume(value * 1.25);
+                //TODO: handle changing audio levels during playback somehow
+                // widget.player.setVolume(value * 1.25);
                 setState(() {
                   _gain = value;
                 });

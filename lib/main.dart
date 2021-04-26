@@ -191,8 +191,9 @@ class _MyHomePageState extends State<MyHomePage> {
     final List<File> files = [];
     for (TrackInstance track in _trackGroup) {
       List<XFile> xFiles = track.track.files;
+      double? level = track.trackKey.currentState?.level;
       preferences['tracks'].add(
-          {"name": track.track.trackName, "level": track.track.player.volume});
+          {"name": track.track.trackName, "level": (level != null ? level : 1.0)});
 
       for (XFile file in xFiles) {
         File toCopy = File(file.path);

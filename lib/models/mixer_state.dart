@@ -94,12 +94,13 @@ class Mixer extends ChangeNotifier {
       String? title = track.trackKey.currentState?.title;
       String trackName = title != null ? title : 'Track${mapCount.toString()}';
       String safeName = trackName.replaceAll(RegExp(r'\W'), '_');
+      double? level = track.trackKey.currentState?.level;
       metaCount = 1;
 
       Map<String, dynamic> trackInfo = {
         "name": trackName,
         "safeName": safeName,
-        "level": track.track.player.volume,
+        "level": (level != null ? level : 1.0),
         "startingIndex": mapCount,
         "length": xFiles.length
       };
