@@ -49,4 +49,5 @@ app.*.map.json
 /sox/
 /assets/playground.sh
 /assets/ffmpeg
-/assets/sox
+/assets/sox/
+/assets/output/
